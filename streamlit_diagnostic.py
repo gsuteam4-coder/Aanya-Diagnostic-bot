@@ -4,15 +4,15 @@ import uuid
 import streamlit as st
 from flowise import Flowise, PredictionData
 
-st.set_page_config(page_title="Aanya Diagnostic Bot", layout="centered")
+st.set_page_config(page_title="Aanya Diagnostic Session", layout="centered")
 
 BASE_URL = "https://cloud.flowiseai.com"
 FLOW_ID = "a6dfa1f4-f439-43eb-b613-97b1c67f5bc0"  # replace if needed
 
 client = Flowise(base_url=BASE_URL)
 
-st.title("🩺 Aanya Diagnostic Bot")
-st.caption("Provide a few intake inputs first, then watch Aanya and Malik complete an automated diagnostic conversation.")
+st.title("🩺 Aanya Diagnostic Session")
+st.caption("A structured wellness intake and follow-up review experience.")
 
 PATIENT = {
     "name": "Malik",
@@ -30,7 +30,7 @@ def clean_text(text: str) -> str:
 
 def is_final_diagnosis(text: str) -> bool:
     upper = text.upper()
-    return "FINAL DIAGNOSIS" in upper or "DIAGNOSIS LEVEL" in upper
+    return "FINAL DIAGNOSTIC SUMMARY" in upper or "DIAGNOSIS LEVEL" in upper
 
 def stream_response(user_input: str, session_id: str):
     completion = client.create_prediction(
@@ -53,23 +53,28 @@ def stream_response(user_input: str, session_id: str):
 def render_conversation(text: str):
     text = clean_text(text)
 
-    rounds = re.findall(r"ROUND\s+\d+", text, flags=re.IGNORECASE)
-    if rounds:
-        st.markdown(f"### Automated Diagnostic Conversation")
-        st.progress(min(len(rounds) / 4, 1.0))
+    session_matches = re.findall(r"Session\s+\d+", text, flags=re.IGNORECASE)
+    if session_matches:
+        st.markdown("### Session Progress")
+        st.progress(min(len(session_matches) / 4, 1.0))
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     with st.container(border=True):
         for line in lines:
-            if re.match(r"^ROUND\s+\d+", line, flags=re.IGNORECASE):
-                st.markdown(f"#### {line.title()}")
-            elif line.upper().startswith("FINAL DIAGNOSIS"):
-                st.markdown("### Final Diagnosis")
+            if line.lower().startswith("welcome to aanya diagnostic session"):
+                st.markdown("### Welcome to Aanya Diagnostic Session")
+            elif re.match(r"^Session\s+\d+", line, flags=re.IGNORECASE):
+                st.markdown(f"#### {line}")
+            elif line.upper().startswith("FINAL DIAGNOSTIC SUMMARY"):
+                st.markdown("### Final Diagnostic Summary")
             elif line.startswith("Aanya:"):
                 st.markdown(f"**Aanya:** {line.replace('Aanya:', '', 1).strip()}")
             elif line.startswith("Malik:"):
                 st.markdown(f"**Malik:** {line.replace('Malik:', '', 1).strip()}")
+            elif line.startswith("Aanya Follow-up Note:"):
+                note = line.replace("Aanya Follow-up Note:", "", 1).strip()
+                st.info(f"Aanya Follow-up Note: {note}")
             else:
                 st.markdown(line)
 
@@ -82,7 +87,7 @@ if "started" not in st.session_state:
 if "conversation_output" not in st.session_state:
     st.session_state.conversation_output = ""
 
-if st.button("🔄 Restart"):
+if st.button("🔄 Restart Session"):
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.started = False
     st.session_state.conversation_output = ""
@@ -95,8 +100,8 @@ st.info(
 )
 
 if not st.session_state.started:
-    st.markdown("### Intake Guidance")
-    st.write("Answer these short setup questions before the automated conversation begins.")
+    st.markdown("### Intake Questions")
+    st.write("Please answer a few short questions before starting the diagnosis.")
 
     strongest_concern = st.selectbox(
         "1. Which concern seems strongest in this case?",
@@ -143,9 +148,9 @@ if not st.session_state.started:
         ]
     )
 
-    if st.button("▶ Start Automated Diagnostic Conversation", use_container_width=True):
+    if st.button("▶ Start Diagnosis", use_container_width=True):
         intake_prompt = f"""
-Start the automated diagnostic conversation using this patient scenario:
+Start the diagnostic session using this patient scenario:
 
 Patient Name: {PATIENT['name']}
 Age: {PATIENT['age']}
@@ -158,9 +163,15 @@ User intake guidance:
 - Initial severity impression: {severity_guess}
 - Likely coping pattern: {coping_pattern}
 
-Now begin the 4-round automated diagnostic conversation between Aanya and Malik, then provide the final diagnosis.
+Now begin the diagnostic session exactly as instructed:
+- Welcome to Aanya Diagnostic Session
+- Session 1 — Initial Visit
+- Session 2 — Follow-up Review
+- Session 3 — Symptom Review
+- Session 4 — Clinical Review
+- Then Final Diagnostic Summary
 """
-        with st.spinner("Running automated diagnostic conversation..."):
+        with st.spinner("Starting diagnosis..."):
             output = st.write_stream(
                 stream_response(intake_prompt, st.session_state.session_id)
             )
