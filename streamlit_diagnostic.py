@@ -7,61 +7,32 @@ from flowise import Flowise, PredictionData
 st.set_page_config(page_title="Aanya Diagnostic Bot", layout="centered")
 
 BASE_URL = "https://cloud.flowiseai.com"
-FLOW_ID = "a6dfa1f4-f439-43eb-b613-97b1c67f5bc0"
+FLOW_ID = "a6dfa1f4-f439-43eb-b613-97b1c67f5bc0"  # replace if needed
 
 client = Flowise(base_url=BASE_URL)
 
 st.title("🩺 Aanya Diagnostic Bot")
-st.caption("Aanya interacts with Malik while you guide the diagnostic path.")
+st.caption("Provide a few intake inputs first, then watch Aanya and Malik complete an automated diagnostic conversation.")
 
-def clean_text(text):
+PATIENT = {
+    "name": "Malik",
+    "age": 22,
+    "condition_hint": "Social anxiety",
+    "summary": "Malik struggles with overthinking, fear of judgment, and avoiding group situations."
+}
+
+def clean_text(text: str) -> str:
     if not text:
         return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("**", "").replace("---", "")
     return text.strip()
 
-def is_final_diagnosis(text):
+def is_final_diagnosis(text: str) -> bool:
     upper = text.upper()
     return "FINAL DIAGNOSIS" in upper or "DIAGNOSIS LEVEL" in upper
 
-def extract_options(text):
-    text = clean_text(text)
-
-    marker = "Choose what Aanya explores next:"
-    idx = text.lower().find(marker.lower())
-    if idx == -1:
-        return []
-
-    part = text[idx + len(marker):].strip()
-
-    match = re.search(
-        r"A\)\s*(.*?)\s*B\)\s*(.*?)\s*C\)\s*(.*)",
-        part,
-        flags=re.DOTALL | re.IGNORECASE
-    )
-
-    if not match:
-        return []
-
-    a_text = " ".join(match.group(1).split())
-    b_text = " ".join(match.group(2).split())
-    c_text = " ".join(match.group(3).split())
-
-    c_text = re.split(
-        r"ROUND\s+\d+|FINAL DIAGNOSIS|Malik:|Aanya:",
-        c_text,
-        maxsplit=1,
-        flags=re.IGNORECASE
-    )[0].strip()
-    c_text = " ".join(c_text.split())
-
-    if a_text and b_text and c_text:
-        return [("A", a_text), ("B", b_text), ("C", c_text)]
-
-    return []
-
-def stream_response(user_input, session_id):
+def stream_response(user_input: str, session_id: str):
     completion = client.create_prediction(
         PredictionData(
             chatflowId=FLOW_ID,
@@ -79,89 +50,123 @@ def stream_response(user_input, session_id):
         except Exception:
             continue
 
-def render_block(text):
+def render_conversation(text: str):
     text = clean_text(text)
 
-    round_match = re.search(r"ROUND\s+(\d+)", text, flags=re.IGNORECASE)
-    if round_match:
-        round_num = int(round_match.group(1))
-        st.markdown(f"## Round {round_num}")
-        st.progress(round_num / 4)
+    rounds = re.findall(r"ROUND\s+\d+", text, flags=re.IGNORECASE)
+    if rounds:
+        st.markdown(f"### Automated Diagnostic Conversation")
+        st.progress(min(len(rounds) / 4, 1.0))
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-    story_lines = []
-    for line in lines:
-        if line.lower().startswith("choose what aanya explores next"):
-            break
-        story_lines.append(line)
-
     with st.container(border=True):
-        for line in story_lines:
-            if line.startswith("Aanya:"):
-                st.markdown(f"**Aanya:** {line.replace('Aanya:', '').strip()}")
+        for line in lines:
+            if re.match(r"^ROUND\s+\d+", line, flags=re.IGNORECASE):
+                st.markdown(f"#### {line.title()}")
+            elif line.upper().startswith("FINAL DIAGNOSIS"):
+                st.markdown("### Final Diagnosis")
+            elif line.startswith("Aanya:"):
+                st.markdown(f"**Aanya:** {line.replace('Aanya:', '', 1).strip()}")
             elif line.startswith("Malik:"):
-                st.markdown(f"**Malik:** {line.replace('Malik:', '').strip()}")
+                st.markdown(f"**Malik:** {line.replace('Malik:', '', 1).strip()}")
             else:
                 st.markdown(line)
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 
-if "history" not in st.session_state:
-    st.session_state.history = []
-
 if "started" not in st.session_state:
     st.session_state.started = False
 
-if st.button("🔄 Restart Diagnostic"):
+if "conversation_output" not in st.session_state:
+    st.session_state.conversation_output = ""
+
+if st.button("🔄 Restart"):
     st.session_state.session_id = str(uuid.uuid4())
-    st.session_state.history = []
     st.session_state.started = False
+    st.session_state.conversation_output = ""
     st.rerun()
 
+st.markdown("### Patient Scenario")
+st.info(
+    f"**{PATIENT['name']}**, age {PATIENT['age']}. "
+    f"{PATIENT['summary']}"
+)
+
 if not st.session_state.started:
-    st.markdown("### Start the automated diagnostic interaction")
-    if st.button("▶ Start", use_container_width=True):
-        first_output = st.write_stream(
-            stream_response("Start the simulation", st.session_state.session_id)
-        )
-        st.session_state.history.append(first_output)
+    st.markdown("### Intake Guidance")
+    st.write("Answer these short setup questions before the automated conversation begins.")
+
+    strongest_concern = st.selectbox(
+        "1. Which concern seems strongest in this case?",
+        [
+            "Fear of judgment in social situations",
+            "Stress and overwhelm in daily life",
+            "Low mood and lack of motivation",
+        ]
+    )
+
+    daily_impact = st.selectbox(
+        "2. Which area seems most affected?",
+        [
+            "Work or study",
+            "Sleep and energy",
+            "Social comfort and relationships",
+        ]
+    )
+
+    symptom_focus = st.selectbox(
+        "3. Which symptom stands out most?",
+        [
+            "Overthinking and racing thoughts",
+            "Physical tension or nervousness",
+            "Avoidance and withdrawal",
+        ]
+    )
+
+    severity_guess = st.selectbox(
+        "4. How severe does this seem at first glance?",
+        [
+            "Mild",
+            "Moderate",
+            "Severe",
+        ]
+    )
+
+    coping_pattern = st.selectbox(
+        "5. What coping pattern seems most likely?",
+        [
+            "Avoids the situation",
+            "Tries to push through quietly",
+            "Seeks reassurance from one trusted person",
+        ]
+    )
+
+    if st.button("▶ Start Automated Diagnostic Conversation", use_container_width=True):
+        intake_prompt = f"""
+Start the automated diagnostic conversation using this patient scenario:
+
+Patient Name: {PATIENT['name']}
+Age: {PATIENT['age']}
+Scenario Summary: {PATIENT['summary']}
+
+User intake guidance:
+- Strongest concern: {strongest_concern}
+- Main life impact: {daily_impact}
+- Symptom focus: {symptom_focus}
+- Initial severity impression: {severity_guess}
+- Likely coping pattern: {coping_pattern}
+
+Now begin the 4-round automated diagnostic conversation between Aanya and Malik, then provide the final diagnosis.
+"""
+        with st.spinner("Running automated diagnostic conversation..."):
+            output = st.write_stream(
+                stream_response(intake_prompt, st.session_state.session_id)
+            )
+        st.session_state.conversation_output = output
         st.session_state.started = True
         st.rerun()
 
-for msg in st.session_state.history:
-    render_block(msg)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-if st.session_state.history:
-    latest = clean_text(st.session_state.history[-1])
-
-    if not is_final_diagnosis(latest):
-        options = extract_options(latest)
-
-        if options:
-            st.subheader("Choose next diagnostic path")
-
-            cols = st.columns(3)
-
-            for i, (letter, text) in enumerate(options):
-                with cols[i]:
-                    with st.container(border=True):
-                        st.markdown(f"**Option {letter}**")
-                        st.write(text)
-
-                        if st.button(
-                            f"Select {letter}",
-                            key=f"{letter}_{len(st.session_state.history)}",
-                            use_container_width=True
-                        ):
-                            next_output = st.write_stream(
-                                stream_response(letter, st.session_state.session_id)
-                            )
-                            st.session_state.history.append(next_output)
-                            st.rerun()
-        else:
-            st.info("No options detected in the latest response.")
-            with st.expander("Debug latest response"):
-                st.code(latest)
+else:
+    render_conversation(st.session_state.conversation_output)
